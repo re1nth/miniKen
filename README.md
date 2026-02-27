@@ -1,2 +1,2 @@
 # miniKen
-Token usage cheat engine
+This project is trying to build a rule-based engine

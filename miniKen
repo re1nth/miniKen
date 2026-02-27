@@ -1,0 +1,13 @@
+I am trying to build a rule-based engine, which can facilitate getting your 
+coding tasks done with far less tokens than the normal.
+
+Today's models are getting smarter and smarter where you can get done lot with 
+shorter context as well. It doesn't need to be spoonfed with every granular detail 
+to get the task finished.
+
+The whole flow of this project is to map the existing code block tokens to a 
+compressed token space, give it as context to the model, get the job done with fewer
+tokens and map back the changes to the original code space in your local machine.
+
+You are offloading the compute to your local machine at pre and post model interactions, leveraging the idle-laid CPU power of your local machine, rather depending completely on the remote resources. This can be a good
+cost saver for the businesses, since there is a wider adoption of such models.
