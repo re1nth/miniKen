@@ -1,0 +1,21 @@
+SessionMapObject storing all the context for the lifetime of the session.
+
+Constructor -
+When a new sessionMapObject is created, a unique session_id is generated.
+This session_id is used throughout the lifecycle of the session.
+
+store:commentOut -
+Ensure the mappings are stored at a (session_id, file_name, attached_identifier) => comment block
+
+store:compactBlocks -
+And the storage of mapping {f1: processCustomerOrderWithValidation, O: Order, ...} is delegated to the
+sessionStore module for each of the methods, class names, packages and other relevant ones.
+This mapping should be at the (project_id, block_identifier) level which can return the mapped name. 
+For the prime reason being, method names, class names, packages and other class names can be uniquely identified at a project repo level.
+And two different projects can have the same class names, method names. So this is a good differentiator.
+
+get:commentOut(session_id, file_name, attached_identifier)
+returns the comment block
+
+get:compactBlockId(project_id, block_identifier)
+returns the corresponding name for a given block identifier

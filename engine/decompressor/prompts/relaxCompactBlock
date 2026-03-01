@@ -1,0 +1,8 @@
+Input - (project_id, file name, component type, component id)
+
+Using all the group of above details, we try to fetch the corresponding
+component name to be replaced inline to the existing compressed names
+If there exists no reference in the mapping, probably this method/package/class 
+got added newly and just leave it as is and return null.
+
+Output - (actual name in original code space)

@@ -1,5 +1,0 @@
-Downsides - 
-
-How do you deal with models which send the huge historical context along with 
-the existing prompt ? The historical context is always bombarded with huge number
-of tokens already.

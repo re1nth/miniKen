@@ -1,0 +1,24 @@
+Orchestrator is the entry point of this engine. User usually creates the prompt in the format
+{Textual query, List of files}. And this list of files can be present in different project repos.
+Within in each project repo, few of them can be code files, where as others can be non-code files.
+
+Pre-processing - 
+Before sending the prompt the model, we intercept and try to accomplish the task in smaller footprint of tokens
+For a new model request, a new sessionMapObject is created with it's unique session id.
+Then we loop through each project id -
+Each one of the code file under it is passed through the codeSquasher logic in the parser module.
+Once we have the list of compressed code files, we then generate the prompt, quoting/passing these compressed files.
+
+Model request-response -
+Before making the request to the model, ensure it follows the format mentioned in the file prompt_format.txt
+The model reads the newly created squashed prompt and answers back the response in the desired format.
+
+Post-processing - 
+The above model response will have both the textual response and the list of modified code files <cf1,cf2,...> in the compressed space.
+Each one of these are of compressed format and we need to send it to the responseBuilder
+In the above list, few of them might have been compressed and need to be decompressed, if so we need to send it to the responseBuilder
+to get the corresponding file in the decompressed space.
+If any of the file has been newly created, then just leave it as is.
+And for the textual part, we pass it along with required params to the relaxTextual in the decompressor module and get the textual response.
+Essentially, this responseBuilder module recreates both the textual response and the code blocks in the original code space with modifications.
+And that's how we send back the response to the user providing both the textual response and the code modifications with all the diffs suggested by the model.

@@ -1,0 +1,7 @@
+> Strategy -  Rule out the comments
+
+Input : (Session Id, project_id, file_name, comment block, attached identifier)
+
+- Usually comment blocks are associated with a class/method/variable identifiers situated just below it.
+- Store the comment block and also the mapping of this comment block to it's attached identifier, at a file level.
+Delegate storing of the mapping to the sessionStore module.

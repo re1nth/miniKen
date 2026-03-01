@@ -1,0 +1,3 @@
+/Users/reva/Documents/miniKen/build/CMakeFiles/miniKen_engine.dir
+/Users/reva/Documents/miniKen/build/CMakeFiles/edit_cache.dir
+/Users/reva/Documents/miniKen/build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,24 @@
+Input - (session id, project_id, file)
+
+This parses the give code file and creates a concrete syntax tree using library like tree-sitter
+Then it navigates through each component
+
+1. If it is a comment block, apply the commmentOut strategy in the compressor module
+The comment blocks are usually present just above the class definitions, method definitions or variables.
+In the majority of the situations, there will not be useful information present in the comment blocks, 
+since the current day models are smart enough to understand the context directly from the actual code blocks.
+
+2. If it is a class/method/variable, apply the compactBlock strategy in the compressor module
+We can squash the code in a much compacter way than what we have already written in.
+The key insight is that models don't need full identifiers to reason — they need structure and relationships. 
+A function like:
+// Before
+void processCustomerOrderWithValidation(Order& order, Customer& customer) {
+    validateOrderItems(order);
+    applyCustomerDiscounts(customer, order);
+    ...
+}
+//After
+void f1(O& o, C& c) { f2(o); f3(c,o); ... }
+
+Ouput - (session_id, project_id, compressed file)

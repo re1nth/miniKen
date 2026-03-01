@@ -1,0 +1,10 @@
+Input - (project_id, file name, component type, component id)
+
+Let's say the textual response has refernce to the method called m1, enclosed within
+double brackets as {{m1}}
+
+Leverage the sessionStore module to find out the corresponding component name in the
+original code space and replace with it
+
+Output - (actual name)
+

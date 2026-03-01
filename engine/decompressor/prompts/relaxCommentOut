@@ -1,0 +1,11 @@
+Input - (project_id, file name, component type, component id)
+
+While parsing through every class or method or what ever component, we try to check if there is 
+any comment block attached to that component id.
+We leverage the sessionStore module to find out the attached comment block.
+And return this comment block or as the output
+
+If there exists no reference in the mapping, probably this component 
+got added newly and just leave it as is and return empty.
+
+Output - (comment block)

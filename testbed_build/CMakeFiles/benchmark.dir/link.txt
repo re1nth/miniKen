@@ -1,0 +1,1 @@
+/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/benchmark.dir/performance/benchmark.cpp.o -o benchmark  engine_build/libminiKen_engine.a /opt/homebrew/lib/libtree-sitter.dylib /tmp/libtree-sitter-cpp.a

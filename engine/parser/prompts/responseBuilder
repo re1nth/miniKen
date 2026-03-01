@@ -1,0 +1,15 @@
+Input - (session id, project_id, compressed file)
+
+This parses the compressed code file and creates a concrete syntax tree using library like tree-sitter
+Then it navigates through each component and forms a new decompressed file.
+
+1. If it just landed onto the definition of a component, then reach out to relaxCommentOut in the decompressor module
+Pass in all the required details mentioned in the relaxCommentOut and get the comment block to be appended right before
+this component in the new decompressed file.
+
+2. If it is a class/method/package/any component, apply the relaxcompactBlock strategy in the compressor module
+Pass in all the required details mentioned in the relaxCompactBlock and get the corresponding identifier to be used
+for the component to be replaced inline. If the response is null, just move on with the navigation and add that component as is
+to the new decompressed file.
+
+Ouput - (session_id, project_id, decompressed file)

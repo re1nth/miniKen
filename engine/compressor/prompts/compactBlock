@@ -1,0 +1,21 @@
+> Strategy - Compact keywords
+
+Input : (Session Id, project_id, file_name, code block, identifier)
+
+A given code block can be represented in a much more compact way than we formally write in a program.
+
+For example 
+A function like:
+// Before
+void processCustomerOrderWithValidation(Order& order, Customer& customer) {
+    validateOrderItems(order);
+    applyCustomerDiscounts(customer, order);
+    ...
+}
+//After
+void f1(O& o, C& c) { f2(o); f3(c,o); ... }
+
+Not just method names, this can be extended to class names and the imported packages/library names.
+And the storage of the mapping is delegated to the sessionStore module.
+
+Output : (Session Id, compressed code block)

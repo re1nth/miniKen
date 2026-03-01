@@ -1,13 +1,152 @@
-I am trying to build a rule-based engine, which can facilitate getting your 
-coding tasks done with far less tokens than the normal.
+The Story
+─────────
 
-Today's models are getting smarter and smarter where you can get done lot with 
-shorter context as well. It doesn't need to be spoonfed with every granular detail 
-to get the task finished.
+I am building a rule-based engine that lets you get coding tasks done with
+far fewer tokens than usual.
 
-The whole flow of this project is to map the existing code block tokens to a 
-compressed token space, give it as context to the model, get the job done with fewer
-tokens and map back the changes to the original code space in your local machine.
+Today's models are getting smarter. You don't need to spoonfeed them every
+granular detail to get a task finished. But the token bill doesn't know that —
+you're still paying for every character of every long identifier, every comment,
+every repeated type name, even though the model would have understood a much
+shorter representation just as well.
 
-You are offloading the compute to your local machine at pre and post model interactions, leveraging the idle-laid CPU power of your local machine, rather depending completely on the remote resources. This can be a good
-cost saver for the businesses, since there is a wider adoption of such models.
+miniKen shifts that compute burden onto your local machine. Before a prompt
+leaves your laptop, the engine compresses your source code into a dense symbolic
+form. The model works on that. When the response comes back, the engine expands
+it again. The model never sees the verbose originals; you never see the compact
+symbols. Everything in between is cheaper.
+
+You are offloading pre- and post-processing to idle local CPU, rather than
+paying remote resources to shuffle tokens that carry no extra information.
+For teams running many coding queries a day this is a meaningful cost difference.
+
+
+The Pipeline
+────────────
+
+  Your Code
+      │
+      ▼
+  [Compressor]  ──  two-pass tree-sitter parse
+      │               Pass 1: walk AST, register every definition,
+      │                       build compact-id map, strip comments
+      │               Pass 2: re-emit source with all identifiers
+      │                       replaced by their compact symbols
+      │
+      ▼
+  Compressed Context  (typically 47 % fewer tokens, 65 % fewer chars)
+      │
+      ▼
+  [ Model ]  ──  works entirely in compact-symbol space
+      │
+      ▼
+  Compressed Response  (compact symbols + [FILE: name] sections)
+      │
+      ▼
+  [Decompressor]  ──  reverse-maps every symbol back to its original,
+      │                restores stripped comment blocks,
+      │                expands {{symbol}} markers in textual replies
+      ▼
+  Patched Code  ──  your original identifiers, fully restored
+
+
+Symbol Scheme
+─────────────
+
+  f   function / method              getUserBalance  →  f1
+  C   class / struct                 CustomerOrder   →  C1
+  v   variable / field / type        accountId       →  v3
+  p   package / import               #include <map>  →  p2
+
+Every symbol is scoped to a session and a project. Two projects processed in
+the same session never share symbol counters, so files from different repos
+can be compressed together without collision.
+
+
+Architecture Highlights
+───────────────────────
+
+Language-agnostic core
+  All compression and decompression logic is language-neutral. Language
+  knowledge (which AST node types are definitions, which are identifiers,
+  which are declarator wrappers) lives in a LanguageProfile struct. Adding
+  support for a new language means writing one profile file — nothing else
+  changes.
+
+  Currently implemented: C++ (via tree-sitter-cpp).
+  Planned: Python, Java, JavaScript (tree-sitter grammars exist for all).
+
+Session isolation
+  Every call creates a fresh SessionMapObject that holds all symbol maps and
+  counters. No global state. Multiple concurrent sessions never interfere.
+
+Two-pass compression (querySquasher)
+  Pass 1 registers definitions with their correct type prefix (f/C/v/p),
+  building the forward and reverse maps.
+  Pass 2 replaces every identifier occurrence — not just definitions, but
+  all call sites too — so the compressed output is self-consistent.
+
+Round-trip fidelity (responseBuilder)
+  The decompressor re-parses the compressed response with the same grammar,
+  finds every compact symbol, and swaps it back. Comment blocks stripped
+  during compression are re-attached before their definitions on the way out.
+
+
+Project Layout
+──────────────
+
+  engine/
+    orchestrator.h/.cpp        entry point: Orchestrator::run()
+    parser/
+      languageProfile.h        LanguageProfile struct (language-neutral)
+      cppProfile.h/.cpp        C++ grammar + node-type knowledge
+      querySquasher.h/.cpp     two-pass compressor
+      responseBuilder.h/.cpp   decompressor
+    compressor/
+      commentOut.h/.cpp        strips and stores comment blocks
+      compactBlock.h/.cpp      maps long names → compact symbols
+    decompressor/
+      relaxCommentOut.h/.cpp   restores comment blocks
+      relaxCompactBlock.h/.cpp restores identifiers in source
+      relaxTextual.h/.cpp      expands {{symbol}} in LLM text
+    sessionStore/
+      sessionMapObject.h/.cpp  in-memory symbol maps + counters
+    static/
+      prompt_format            system prompt sent to the model
+
+  testbed/
+    cli/miniken.cpp            command-line driver
+    stages/
+      cpp/                     C++ original / compressed / decompressed
+      python/                  Python  ─┐
+      java/                    Java    ─┤  stage files showing what
+      javascript/              JS      ─┘  each pipeline stage looks like
+    tests/                     92 unit + integration tests
+    performance/benchmark.cpp  token-reduction benchmark
+
+
+Real Numbers  (benchmark across 5 representative C++ samples)
+──────────────────────────────────────────────────────────────
+
+  Average token reduction  :  47 %
+  Average character reduction:  65 %
+
+  A 164-token authentication module compresses to 99 tokens.
+  A 141-token payment pipeline compresses to 64 tokens.
+
+
+Integration Paths
+─────────────────
+
+CLI (works today)
+  export ANTHROPIC_API_KEY="sk-ant-..."
+  ./testbed_build/miniken "your question" src/foo.cpp src/bar.cpp
+
+Claude Code — MCP server (recommended next step)
+  Wrap the miniken binary in a ~100-line Python MCP server.
+  Register one tool: miniken_query(question, files[]).
+  Claude Code calls it automatically when working on C++ files.
+
+VSCode extension
+  A sidebar that lets you pick files, type a query, and see the
+  decompressed response alongside compression statistics.

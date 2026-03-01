@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/reva/Documents/miniKen/testbed_build/cmake_install.cmake",
+		"/Users/reva/Documents/miniKen/testbed_build/engine_build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
