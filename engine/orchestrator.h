@@ -14,6 +14,11 @@ struct ModelResponse {
     std::vector<std::pair<std::string, std::string>> files;
 };
 
+struct ApiUsage {
+    long input_tokens  = 0;
+    long output_tokens = 0;
+};
+
 class Orchestrator {
 public:
     // Compresses all project files, stubs a model call, then decompresses
@@ -26,7 +31,7 @@ private:
         const std::string& userQuery,
         const std::vector<std::pair<std::string, std::string>>& compressedFiles);
 
-    static std::string callModel(const std::string& prompt);
+    static std::string callModel(const std::string& prompt, ApiUsage& outUsage);
 
     static ModelResponse parseModelResponse(const std::string& rawResponse);
 };

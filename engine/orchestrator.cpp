@@ -106,7 +106,58 @@ static std::string jsonEscape(const std::string& raw) {
     return out;
 }
 
-std::string Orchestrator::callModel(const std::string& prompt) {
+// ---------------------------------------------------------------------------
+// countTokens — calls /v1/messages/count_tokens for an exact token count.
+// Returns 0 on failure.
+// ---------------------------------------------------------------------------
+
+static long countTokens(const std::string& prompt,
+                        const std::string& apiKey,
+                        const std::string& modelId) {
+    char reqPath[] = "/tmp/miniken_ctok_XXXXXX";
+    int fd = mkstemp(reqPath);
+    if (fd < 0) return 0;
+
+    std::string body =
+        "{\"model\":\"" + modelId + "\","
+        "\"messages\":[{\"role\":\"user\",\"content\":\""
+        + jsonEscape(prompt) + "\"}]}";
+
+    ::write(fd, body.c_str(), body.size());
+    ::close(fd);
+
+    char respPath[] = "/tmp/miniken_ctok_resp_XXXXXX";
+    fd = mkstemp(respPath);
+    if (fd < 0) { std::remove(reqPath); return 0; }
+    ::close(fd);
+
+    std::string curlCmd =
+        "curl -s https://api.anthropic.com/v1/messages/count_tokens"
+        " -H \"x-api-key: " + apiKey + "\""
+        " -H \"anthropic-version: 2023-06-01\""
+        " -H \"content-type: application/json\""
+        " -d @" + std::string(reqPath) +
+        " > " + std::string(respPath);
+
+    std::system(curlCmd.c_str());
+    std::remove(reqPath);
+
+    std::string cmd = std::string("jq -r '.input_tokens' ") + respPath + " 2>/dev/null";
+    std::string out;
+    FILE* p = popen(cmd.c_str(), "r");
+    if (p) {
+        char buf[64];
+        while (std::fgets(buf, sizeof(buf), p)) out += buf;
+        pclose(p);
+    }
+    std::remove(respPath);
+
+    if (!out.empty() && out.back() == '\n') out.pop_back();
+    if (out.empty() || out == "null") return 0;
+    try { return std::stol(out); } catch (...) { return 0; }
+}
+
+std::string Orchestrator::callModel(const std::string& prompt, ApiUsage& outUsage) {
     const char* apiKey = std::getenv("ANTHROPIC_API_KEY");
     if (!apiKey || std::string(apiKey).empty()) {
         std::cerr << "[miniKen] ANTHROPIC_API_KEY not set — using stub response.\n";
@@ -117,58 +168,69 @@ std::string Orchestrator::callModel(const std::string& prompt) {
     std::string modelId = model ? model : "claude-sonnet-4-6";
 
     // Write the JSON body to a temp file to avoid shell-quoting issues.
-    char tmpPath[] = "/tmp/miniken_req_XXXXXX";
-    int fd = mkstemp(tmpPath);
-    if (fd < 0) {
-        std::cerr << "[miniKen] mkstemp failed\n";
-        return {};
-    }
+    char reqPath[] = "/tmp/miniken_req_XXXXXX";
+    int fd = mkstemp(reqPath);
+    if (fd < 0) { std::cerr << "[miniKen] mkstemp failed\n"; return {}; }
 
     std::string body =
         "{\"model\":\"" + modelId + "\","
         "\"max_tokens\":8192,"
         "\"messages\":[{\"role\":\"user\",\"content\":\""
-        + jsonEscape(prompt) +
-        "\"}]}";
+        + jsonEscape(prompt) + "\"}]}";
 
     ::write(fd, body.c_str(), body.size());
     ::close(fd);
 
-    // Build the curl | jq command.
-    std::string cmd =
+    // Temp file for the raw API response JSON.
+    char respPath[] = "/tmp/miniken_resp_XXXXXX";
+    fd = mkstemp(respPath);
+    if (fd < 0) {
+        std::cerr << "[miniKen] mkstemp failed\n";
+        std::remove(reqPath);
+        return {};
+    }
+    ::close(fd);
+
+    // curl — save full JSON to respPath.
+    std::string curlCmd =
         "curl -s https://api.anthropic.com/v1/messages"
         " -H \"x-api-key: " + std::string(apiKey) + "\""
         " -H \"anthropic-version: 2023-06-01\""
         " -H \"content-type: application/json\""
-        " -d @" + tmpPath +
-        " | jq -r '.content[0].text' 2>/dev/null";
+        " -d @" + std::string(reqPath) +
+        " > " + std::string(respPath);
 
-    std::string response;
-    {
-        FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) {
-            std::cerr << "[miniKen] popen failed\n";
-            std::remove(tmpPath);
-            return {};
-        }
+    std::system(curlCmd.c_str());
+    std::remove(reqPath);
+
+    // Helper: run a jq filter against respPath, return trimmed output.
+    auto jqGet = [&](const char* filter) -> std::string {
+        std::string cmd = std::string("jq -r '") + filter + "' "
+                        + respPath + " 2>/dev/null";
+        std::string out;
+        FILE* p = popen(cmd.c_str(), "r");
+        if (!p) return {};
         char buf[4096];
-        while (std::fgets(buf, sizeof(buf), pipe))
-            response += buf;
-        pclose(pipe);
-    }
+        while (std::fgets(buf, sizeof(buf), p)) out += buf;
+        pclose(p);
+        if (!out.empty() && out.back() == '\n') out.pop_back();
+        return out;
+    };
 
-    std::remove(tmpPath);
+    std::string response   = jqGet(".content[0].text");
+    std::string inTokStr   = jqGet(".usage.input_tokens");
+    std::string outTokStr  = jqGet(".usage.output_tokens");
 
-    // jq outputs "null" when the field is missing (e.g. API error).
+    std::remove(respPath);
+
     if (response.empty() || response.substr(0, 4) == "null") {
         std::cerr << "[miniKen] Unexpected API response — check your API key "
                      "and model name.\n";
         return {};
     }
 
-    // Trim trailing newline jq adds.
-    if (!response.empty() && response.back() == '\n')
-        response.pop_back();
+    try { outUsage.input_tokens  = std::stol(inTokStr);  } catch (...) {}
+    try { outUsage.output_tokens = std::stol(outTokStr); } catch (...) {}
 
     return response;
 }
@@ -228,10 +290,10 @@ std::string Orchestrator::run(const std::string&              userQuery,
                               const std::vector<ProjectFiles>& projects) {
     SessionMapObject session;
 
-    // Step 1: compress all code files.
+    // Step 1: read original files + compress them.
+    std::vector<std::pair<std::string, std::string>> originalFiles;   // for token estimation
     std::vector<std::pair<std::string, std::string>> compressedFiles;
-    // Track which projectId each compressed file belongs to.
-    std::vector<std::pair<std::string, std::string>> fileToProject; // fileName → projectId
+    std::vector<std::pair<std::string, std::string>> fileToProject;   // fileName → projectId
 
     for (const auto& proj : projects) {
         for (const auto& filePath : proj.codeFilePaths) {
@@ -239,18 +301,20 @@ std::string Orchestrator::run(const std::string&              userQuery,
             if (auto pos = filePath.rfind('/'); pos != std::string::npos)
                 fileName = filePath.substr(pos + 1);
 
+            // Read original content first (for uncompressed token estimate).
+            std::string original;
+            {
+                std::ifstream f(filePath, std::ios::binary);
+                if (f) { std::ostringstream ss; ss << f.rdbuf(); original = ss.str(); }
+            }
+            originalFiles.emplace_back(fileName, original);
+
             const LanguageProfile* profile = profileForPath(filePath);
             std::string compressed;
             if (profile) {
                 compressed = QuerySquasher::apply(session, proj.projectId, filePath, *profile);
             } else {
-                // Non-parseable file: pass content through unmodified.
-                std::ifstream f(filePath, std::ios::binary);
-                if (f) {
-                    std::ostringstream ss;
-                    ss << f.rdbuf();
-                    compressed = ss.str();
-                }
+                compressed = original;  // non-parseable: pass through
             }
 
             compressedFiles.emplace_back(fileName, compressed);
@@ -258,16 +322,47 @@ std::string Orchestrator::run(const std::string&              userQuery,
         }
     }
 
-    // Step 2: build prompt and call model (stub).
-    std::string prompt      = buildPrompt(userQuery, compressedFiles);
-    std::string rawResponse = callModel(prompt);
+    // Step 2: build both prompts so we can compare token counts.
+    std::string uncompressedPrompt = buildPrompt(userQuery, originalFiles);
+    std::string compressedPrompt   = buildPrompt(userQuery, compressedFiles);
 
-    // Step 3: parse model response.
+    // Step 3: count uncompressed tokens (exact, via /v1/messages/count_tokens).
+    const char* apiKey = std::getenv("ANTHROPIC_API_KEY");
+    const char* model  = std::getenv("MINIKEN_MODEL");
+    std::string modelId = model ? model : "claude-sonnet-4-6";
+
+    long uncompressedTokens = 0;
+    if (apiKey && std::string(apiKey).size() > 0)
+        uncompressedTokens = countTokens(uncompressedPrompt, apiKey, modelId);
+
+    // Step 4: call model, capture real token usage.
+    ApiUsage usage;
+    std::string rawResponse = callModel(compressedPrompt, usage);
+
+    // Step 5: print token metrics to stdout (visible through MCP layer).
+    {
+        long actual = usage.input_tokens;
+        std::cout << "\n--- miniKen Token Metrics ---\n";
+        if (uncompressedTokens > 0) {
+            std::cout << "Without compression: " << uncompressedTokens << " tokens\n";
+        }
+        if (actual > 0) {
+            std::cout << "With compression:    " << actual << " tokens\n";
+        }
+        if (uncompressedTokens > 0 && actual > 0) {
+            long saved = uncompressedTokens - actual;
+            int  pct   = (int)(100.0 * saved / uncompressedTokens);
+            std::cout << "Tokens saved:        " << saved << "  (" << pct << "%)\n";
+        }
+        if (usage.output_tokens > 0)
+            std::cout << "Output tokens:       " << usage.output_tokens << "\n";
+        std::cout << "-----------------------------\n\n";
+    }
+
+    // Step 5: parse model response.
     ModelResponse modelResp = parseModelResponse(rawResponse);
 
-    // Step 4: decompress modified files.
-    // We need the projectId for each returned file.  Use first project as default
-    // when there's only one; otherwise match by name.
+    // Step 6: decompress modified files.
     auto getProjectId = [&](const std::string& name) -> std::string {
         for (const auto& [fn, pid] : fileToProject) {
             if (fn == name) return pid;
@@ -283,8 +378,7 @@ std::string Orchestrator::run(const std::string&              userQuery,
         }
     }
 
-    // Step 5: decompress textual response.
-    // Use first project id for textual (markers refer to the shared symbol space).
+    // Step 7: decompress textual response.
     std::string pid = projects.empty() ? "" : projects[0].projectId;
     return RelaxTextual::apply(session, pid, modelResp.textual);
 }
