@@ -2,6 +2,8 @@
 
 **Coding tasks in Eco mode** — compress your source code before it reaches the model, decompress the response before it reaches you. Same results, fewer tokens.
 
+<img width="2533" height="1219" alt="Screenshot 2026-03-10 at 9 28 34 PM" src="https://github.com/user-attachments/assets/1a664386-31e2-4b37-bbcb-958202506901" />
+
 ---
 
 ## Results
