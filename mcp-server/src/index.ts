@@ -1,5 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { startWebServer } from "./webServer";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -184,6 +185,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  startWebServer(4040);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

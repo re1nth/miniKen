@@ -127,6 +127,11 @@ static void collectReplacements(TSNode node, const std::string& src,
         uint32_t e    = ts_node_end_byte(node);
         std::string name = src.substr(s, e - s);
 
+        // Never compress built-in / primitive type names.
+        if (CompactBlock::isPrimitive(name)) {
+            return;
+        }
+
         // allocateCompactId fast-paths on pre-registered names (from pass 1),
         // returning their compact id regardless of the prefix argument.
         std::string compact = session.allocateCompactId(

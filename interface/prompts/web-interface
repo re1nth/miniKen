@@ -1,0 +1,10 @@
+I want you to create a web interface which does the following -
+
+1. Once we run the mcp-server, this web app interface will also spin up.
+2. This web app, will have the below functionality/responsibility -
+a. The user can post the query and can also view the answers just like any chatbot like Claude/ChatGPT/Gemini ?
+b. And the user can tag/refer the code files present in his local machine.
+3. Once the user clicks on send, give the side-by-side comparison of a query answer in two modes 
+a. One response when using the miniKen engine
+b. Other response without using the miniKen engine 
+4. And most importantly log the metrics on the tokens saved

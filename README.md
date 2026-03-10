@@ -77,28 +77,66 @@ All compression and decompression runs locally on your machine. The model never 
 
 ---
 
-## Build
-
-**Prerequisites:** CMake ≥ 3.16, a C++17 compiler, tree-sitter, tree-sitter-cpp.
+## Quick start
 
 ```bash
-cmake -S engine -B build
-cmake --build build
+export ANTHROPIC_API_KEY="sk-ant-..."
+./start.sh
+```
 
-# If tree-sitter is not on the default path:
-cmake -S engine -B build -DTREE_SITTER_ROOT=/opt/homebrew
-cmake --build build
+That single command handles everything:
 
-# Build the full testbed (tests + CLI + benchmark):
-cmake -S testbed -B testbed_build -DTREE_SITTER_ROOT=/opt/homebrew
-cmake --build testbed_build
+1. Verifies system prerequisites (cmake, C++ compiler, Node.js ≥ 18, npm, git)
+2. Detects your tree-sitter installation
+3. Clones and builds the `tree-sitter-cpp` grammar (cached in `/tmp` after the first run)
+4. Builds the `miniken` binary via cmake (incremental — fast on repeat runs)
+5. Runs `npm install` + `tsc` inside `mcp-server/`
+6. Starts the server
+
+Once running, open **http://localhost:4040** for the web interface.
+
+**System requirements**
+
+| Dependency | Install |
+|---|---|
+| CMake ≥ 3.16 | `brew install cmake` / `sudo apt install cmake` |
+| C++17 compiler | `xcode-select --install` (macOS) / `sudo apt install build-essential` (Ubuntu) |
+| tree-sitter | `brew install tree-sitter` / `sudo apt install libtree-sitter-dev` |
+| Node.js v18+ | https://nodejs.org |
+| git | `brew install git` / `sudo apt install git` |
+
+**Options**
+
+```bash
+# Custom port (default 4040)
+./start.sh --port 8080
+
+# API key inline (if not already exported)
+ANTHROPIC_API_KEY=sk-ant-... ./start.sh
+
+# Override the model (default: claude-sonnet-4-6)
+MINIKEN_MODEL=claude-haiku-4-5-20251001 ./start.sh
 ```
 
 ---
 
-## Usage
+## Web interface
 
-### CLI
+The web interface launches alongside the server at **http://localhost:4040**.
+
+- Type a question in the input bar
+- Click **＋ Files** to attach source files (`.cpp`, `.py`, `.java`, `.js`, and more)
+- Press **Send** or `Cmd+Enter`
+- Both responses appear side by side:
+  - **Left** — miniKen compressed path (compress → model → decompress)
+  - **Right** — Raw uncompressed path (original files sent directly)
+- A metrics bar shows the exact tokens saved (or added) for that query
+
+---
+
+## CLI
+
+The `miniken` binary is also available directly after running `./start.sh` at least once:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
@@ -108,7 +146,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Request a code change — modified files are decompressed before you see them
 ./testbed_build/miniken \
-  "Add a applyFlatShippingFee function that adds a fee to totalAmountAfterDiscount" \
+  "Add an applyFlatShippingFee function that adds a fee to totalAmountAfterDiscount" \
   src/order.cpp src/types.h
 
 # Use a cheaper/faster model for quick queries
@@ -153,6 +191,10 @@ Results across five representative C++ samples:
 ## Tests
 
 ```bash
+# Run all suites via the helper script (builds first if needed):
+bash testbed/tests/run_all.sh
+
+# Or run individual suites directly from the build directory:
 cd testbed_build
 ./test_sessionMapObject   # 27 tests
 ./test_compressor         # 16 tests
@@ -186,8 +228,11 @@ engine/
   static/
     prompt_format              system prompt sent to the model
 
-mcp-server/                    Claude Code MCP integration
-  src/index.ts                 MCP server (eco_query, eco_mode_toggle, eco_status)
+mcp-server/                    MCP server + web interface backend
+  src/index.ts                 entry point: starts MCP (stdio) + web server (HTTP)
+  src/webServer.ts             Express server — serves UI and POST /api/query
+  src/queryHandler.ts          dual-path handler (miniKen binary + raw Anthropic SDK)
+  public/index.html            web UI (chat, file attach, side-by-side comparison)
   package.json
   tsconfig.json
 
@@ -201,7 +246,8 @@ testbed/
   tests/                       92 unit + integration tests
   performance/benchmark.cpp    token-reduction benchmark
 
-install.sh                     one-shot Claude Code MCP setup
+start.sh                       one-shot setup + launch (prerequisites → build → run)
+install.sh                     registers the MCP server with Claude Code
 ```
 
 ---
@@ -223,20 +269,15 @@ The parser layer is language-agnostic. All language knowledge lives in a `Langua
 
 miniKen ships an MCP server so Claude Code can call it as a native tool.
 
-**Prerequisites:** Node.js v18+, the `testbed_build/miniken` binary (see [Build](#build) above).
-
 ### Install
+
+Run `./start.sh` once (see [Quick start](#quick-start)) — it builds everything. Then register the MCP server with Claude Code:
 
 ```bash
 ./install.sh
 ```
 
-That's it. The script:
-1. Installs npm dependencies inside `mcp-server/`
-2. Compiles the TypeScript server
-3. Patches `~/.claude/settings.json` to register the server
-
-Then **restart Claude Code** (or run `/mcp` in the CLI to reload servers).
+`install.sh` patches `~/.claude/settings.json` to register the server. Then **restart Claude Code** (or run `/mcp` in the CLI to reload servers).
 
 ### Tools
 

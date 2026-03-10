@@ -4,7 +4,7 @@ Input : (Session Id, project_id, file_name, code block, identifier)
 
 A given code block can be represented in a much more compact way than we formally write in a program.
 
-For example 
+For example
 A function like:
 // Before
 void processCustomerOrderWithValidation(Order& order, Customer& customer) {
@@ -13,9 +13,22 @@ void processCustomerOrderWithValidation(Order& order, Customer& customer) {
     ...
 }
 //After
-void f1(O& o, C& c) { f2(o); f3(c,o); ... }
+void f1(Order& C1, Customer& C2) { f2(C1); f3(C2,C1); ... }
 
 Not just method names, this can be extended to class names and the imported packages/library names.
 And the storage of the mapping is delegated to the sessionStore module.
+
+EXCLUSION RULE:
+Built-in / primitive types that are part of the language itself must NEVER be compressed.
+They must appear in the output exactly as written in the source.
+This rule is language-agnostic. Examples of names that must be left unchanged:
+  C/C++   : void, bool, char, int, short, long, float, double, unsigned, signed,
+             size_t, auto, wchar_t, int8_t … uint64_t
+  Java    : void, boolean, byte, char, short, int, long, float, double
+  Python  : int, str, float, bool, bytes, list, dict, tuple, set
+  Go      : bool, byte, rune, int, int8…int64, uint…uint64, float32, float64,
+             complex64, complex128, string, error, any, uintptr
+  JS/TS   : string, number, boolean, void, never, any, unknown, object, symbol, bigint
+  Rust    : bool, char, str, i8…i128, u8…u128, f32, f64, isize, usize
 
 Output : (Session Id, compressed code block)

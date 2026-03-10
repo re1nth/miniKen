@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
+const webServer_1 = require("./webServer");
 const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const child_process_1 = require("child_process");
 const util_1 = require("util");
@@ -152,6 +153,7 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
 });
 // ── Start ─────────────────────────────────────────────────────────────────────
 async function main() {
+    (0, webServer_1.startWebServer)(4040);
     const transport = new stdio_js_1.StdioServerTransport();
     await server.connect(transport);
 }

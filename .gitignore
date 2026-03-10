@@ -1,0 +1,30 @@
+# ── CMake build directories ───────────────────────────────────────────────────
+build/
+testbed/build/
+testbed_build/
+
+# ── Compiled binaries and libraries ──────────────────────────────────────────
+*.a
+*.o
+*.so
+*.dylib
+miniKen
+testbed/build/test_*
+testbed/build/generate_stages
+testbed/build/benchmark
+testbed/build/miniken
+
+# ── Node / MCP server ────────────────────────────────────────────────────────
+mcp-server/node_modules/
+mcp-server/dist/
+
+# ── Editor and OS artifacts ───────────────────────────────────────────────────
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# ── Claude Code local settings ───────────────────────────────────────────────
+.claude/

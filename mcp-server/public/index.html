@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>miniKen</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2e3147;
+      --accent:    #6366f1;
+      --accent-dim:#3730a3;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --code-bg:   #0d1117;
+      --radius:    10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header .logo { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+    header .logo span { color: var(--accent); }
+    header .subtitle { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+    /* ── Chat area ── */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    /* ── Empty state ── */
+    #empty-state {
+      margin: auto;
+      text-align: center;
+      color: var(--muted);
+    }
+    #empty-state h2 { font-size: 22px; margin-bottom: 8px; color: var(--text); }
+    #empty-state p  { font-size: 14px; max-width: 420px; line-height: 1.6; }
+
+    /* ── Message block ── */
+    .message { display: flex; flex-direction: column; gap: 12px; }
+
+    .user-query {
+      align-self: flex-end;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      padding: 10px 16px;
+      border-radius: var(--radius);
+      max-width: 70%;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .file-pills {
+      align-self: flex-end;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .file-pill-history {
+      font-size: 11px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2px 10px;
+      color: var(--muted);
+    }
+
+    /* ── Loading spinner ── */
+    .loading-row {
+      display: flex;
+      gap: 16px;
+    }
+    .loading-panel {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Response row ── */
+    .response-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    .response-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .response-panel.miniken-panel { border-color: var(--accent); }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .panel-header .dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .miniken-panel .panel-header .dot { background: var(--accent); }
+    .raw-panel     .panel-header .dot { background: var(--muted); }
+
+    .panel-body {
+      padding: 16px;
+      overflow-y: auto;
+      max-height: 480px;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    /* ── Metrics bar ── */
+    .metrics-bar {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+    .metrics-bar .metric { display: flex; align-items: center; gap: 6px; }
+    .metrics-bar .metric .label { color: var(--muted); }
+    .metrics-bar .metric .value { font-weight: 600; }
+    .metrics-bar .saved-badge {
+      margin-left: auto;
+      background: #14532d;
+      border: 1px solid var(--green);
+      color: var(--green);
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .metrics-bar .saved-badge.negative {
+      background: #450a0a;
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    /* ── Markdown styles ── */
+    .panel-body h1, .panel-body h2, .panel-body h3 {
+      margin: 12px 0 6px;
+      font-weight: 600;
+    }
+    .panel-body p { margin-bottom: 10px; }
+    .panel-body ul, .panel-body ol { padding-left: 20px; margin-bottom: 10px; }
+    .panel-body li { margin-bottom: 4px; }
+    .panel-body code {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 12px;
+    }
+    .panel-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      overflow-x: auto;
+      margin-bottom: 10px;
+    }
+    .panel-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 13px;
+    }
+    .panel-body strong { font-weight: 600; }
+    .panel-body em { font-style: italic; color: var(--muted); }
+    .panel-body blockquote {
+      border-left: 3px solid var(--border);
+      padding-left: 12px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    /* ── Input area ── */
+    #input-area {
+      border-top: 1px solid var(--border);
+      padding: 16px 24px;
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    #file-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 10px 4px 12px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .chip button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0;
+    }
+    .chip button:hover { color: var(--red); }
+
+    #input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    #query {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      padding: 10px 14px;
+      resize: none;
+      min-height: 44px;
+      max-height: 160px;
+      outline: none;
+      transition: border-color 0.15s;
+      line-height: 1.5;
+    }
+    #query:focus { border-color: var(--accent); }
+    #query::placeholder { color: var(--muted); }
+
+    .btn {
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 18px;
+      height: 44px;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    .btn:hover:not(:disabled) { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn-secondary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-secondary:hover:not(:disabled) { border-color: var(--accent); opacity: 1; }
+
+    #file-input { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">mini<span>Ken</span></div>
+  <div class="subtitle">Token-efficient code analysis · Side-by-side comparison</div>
+</header>
+
+<div id="chat">
+  <div id="empty-state">
+    <h2>Ask about your code</h2>
+    <p>Attach source files, type your question, and see responses with and without miniKen compression — side by side.</p>
+  </div>
+</div>
+
+<div id="input-area">
+  <div id="file-chips"></div>
+  <div id="input-row">
+    <button class="btn btn-secondary" id="attach-btn" title="Attach source files">
+      ＋ Files
+    </button>
+    <input type="file" id="file-input" multiple
+           accept=".cpp,.cc,.cxx,.c,.h,.hpp,.hxx,.py,.java,.js,.ts,.go,.rs,.cs,.rb,.swift" />
+    <textarea id="query" rows="1"
+              placeholder="Ask a question about your code…"></textarea>
+    <button class="btn" id="send-btn">Send</button>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  const attachedFiles = new Map(); // name → { name, content }
+
+  // ── DOM refs ───────────────────────────────────────────────────────────────
+  const chat       = document.getElementById("chat");
+  const emptyState = document.getElementById("empty-state");
+  const fileChips  = document.getElementById("file-chips");
+  const fileInput  = document.getElementById("file-input");
+  const queryEl    = document.getElementById("query");
+  const sendBtn    = document.getElementById("send-btn");
+  const attachBtn  = document.getElementById("attach-btn");
+
+  // ── File attachment ────────────────────────────────────────────────────────
+  attachBtn.addEventListener("click", () => fileInput.click());
+
+  fileInput.addEventListener("change", () => {
+    const files = Array.from(fileInput.files ?? []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        attachedFiles.set(file.name, { name: file.name, content: e.target.result });
+        renderChips();
+      };
+      reader.readAsText(file);
+    });
+    fileInput.value = "";
+  });
+
+  function renderChips() {
+    fileChips.innerHTML = "";
+    for (const [name] of attachedFiles) {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.innerHTML = `<span>${escHtml(name)}</span>
+        <button title="Remove" data-name="${escHtml(name)}">×</button>`;
+      chip.querySelector("button").addEventListener("click", () => {
+        attachedFiles.delete(name);
+        renderChips();
+      });
+      fileChips.appendChild(chip);
+    }
+  }
+
+  // ── Auto-grow textarea ─────────────────────────────────────────────────────
+  queryEl.addEventListener("input", () => {
+    queryEl.style.height = "auto";
+    queryEl.style.height = Math.min(queryEl.scrollHeight, 160) + "px";
+  });
+
+  // Ctrl/Cmd+Enter to send
+  queryEl.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") sendQuery();
+  });
+
+  sendBtn.addEventListener("click", sendQuery);
+
+  // ── Send query ─────────────────────────────────────────────────────────────
+  async function sendQuery() {
+    const query = queryEl.value.trim();
+    if (!query) return;
+
+    emptyState.style.display = "none";
+
+    const files = Array.from(attachedFiles.values());
+    const fileCopy = files.map(f => ({ name: f.name, content: f.content }));
+    const fileNames = fileCopy.map(f => f.name);
+
+    // Render user turn
+    const msgBlock = document.createElement("div");
+    msgBlock.className = "message";
+    if (fileNames.length) {
+      const pills = document.createElement("div");
+      pills.className = "file-pills";
+      pills.innerHTML = fileNames.map(n =>
+        `<span class="file-pill-history">📄 ${escHtml(n)}</span>`).join("");
+      msgBlock.appendChild(pills);
+    }
+    const qDiv = document.createElement("div");
+    qDiv.className = "user-query";
+    qDiv.textContent = query;
+    msgBlock.appendChild(qDiv);
+
+    // Loading row
+    const loadingRow = document.createElement("div");
+    loadingRow.className = "loading-row";
+    loadingRow.innerHTML = `
+      <div class="loading-panel">
+        <div class="spinner"></div>
+        <span>miniKen (compressed) …</span>
+      </div>
+      <div class="loading-panel">
+        <div class="spinner"></div>
+        <span>Raw (uncompressed) …</span>
+      </div>`;
+    msgBlock.appendChild(loadingRow);
+    chat.appendChild(msgBlock);
+    chat.scrollTop = chat.scrollHeight;
+
+    // Reset input
+    queryEl.value = "";
+    queryEl.style.height = "auto";
+    sendBtn.disabled = true;
+
+    try {
+      const res  = await fetch("/api/query", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ query, files: fileCopy }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error ?? "Server error");
+
+      // Remove loading
+      loadingRow.remove();
+
+      // Metrics bar
+      const m       = data.miniKen?.metrics ?? {};
+      const rawIn   = data.raw?.inputTokens  ?? 0;
+      const rawOut  = data.raw?.outputTokens ?? 0;
+      const saved   = m.tokensSaved ?? (rawIn - (m.withCompression ?? 0));
+      const savePct = m.savingsPct  ?? (rawIn > 0 ? Math.round(100 * saved / rawIn) : 0);
+      const isGain  = saved > 0;
+
+      const metricsBar = document.createElement("div");
+      metricsBar.className = "metrics-bar";
+      metricsBar.innerHTML = `
+        <div class="metric">
+          <span class="label">Without compression</span>
+          <span class="value">${fmt(m.withoutCompression ?? rawIn)} tokens</span>
+        </div>
+        <div class="metric">
+          <span class="label">With miniKen</span>
+          <span class="value">${fmt(m.withCompression ?? 0)} tokens</span>
+        </div>
+        <div class="metric">
+          <span class="label">Output (raw)</span>
+          <span class="value">${fmt(rawOut)} tokens</span>
+        </div>
+        <span class="saved-badge ${isGain ? "" : "negative"}">
+          ${isGain ? "▼" : "▲"} ${Math.abs(saved)} tokens (${Math.abs(savePct)}% ${isGain ? "saved" : "more"})
+        </span>`;
+      msgBlock.appendChild(metricsBar);
+
+      // Response row
+      const responseRow = document.createElement("div");
+      responseRow.className = "response-row";
+      responseRow.innerHTML = `
+        <div class="response-panel miniken-panel">
+          <div class="panel-header">
+            <span class="dot"></span> miniKen — Compressed
+          </div>
+          <div class="panel-body">${renderMd(data.miniKen?.response ?? "")}</div>
+        </div>
+        <div class="response-panel raw-panel">
+          <div class="panel-header">
+            <span class="dot"></span> Raw — Uncompressed
+          </div>
+          <div class="panel-body">${renderMd(data.raw?.response ?? "")}</div>
+        </div>`;
+      msgBlock.appendChild(responseRow);
+
+    } catch (err) {
+      loadingRow.remove();
+      const errDiv = document.createElement("div");
+      errDiv.style.cssText = "color:#ef4444;font-size:13px;padding:8px 0";
+      errDiv.textContent = "Error: " + err.message;
+      msgBlock.appendChild(errDiv);
+    }
+
+    sendBtn.disabled = false;
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function renderMd(text) {
+    if (!text) return '<span style="color:var(--muted)">No response.</span>';
+    return marked.parse(text);
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,"&amp;").replace(/</g,"&lt;")
+              .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function fmt(n) {
+    if (!n && n !== 0) return "—";
+    return Number(n).toLocaleString();
+  }
+</script>
+</body>
+</html>
