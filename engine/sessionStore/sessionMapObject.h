@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class SessionMapObject {
 public:
@@ -29,6 +30,11 @@ public:
     std::string allocateCompactId(const std::string& projectId,
                                   char componentType,
                                   const std::string& originalName);
+
+    // Return all (compactId, originalName) pairs for a project, sorted by
+    // prefix group (f, C, v, p) then by numeric suffix.
+    std::vector<std::pair<std::string, std::string>> getCompactMappings(
+        const std::string& projectId) const;
 
 private:
     std::string sessionId_;

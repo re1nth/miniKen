@@ -29,9 +29,12 @@ public:
 private:
     static std::string buildPrompt(
         const std::string& userQuery,
-        const std::vector<std::pair<std::string, std::string>>& compressedFiles);
+        const std::vector<std::pair<std::string, std::string>>& compressedFiles,
+        const std::vector<std::pair<std::string, std::string>>& symbolTable);
 
-    static std::string callModel(const std::string& prompt, ApiUsage& outUsage);
+    static std::string callModel(const std::string& prompt, ApiUsage& outUsage,
+                                 std::string& outRawJson,
+                                 std::string& outRequestJson);
 
     static ModelResponse parseModelResponse(const std::string& rawResponse);
 };

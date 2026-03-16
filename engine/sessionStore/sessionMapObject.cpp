@@ -1,5 +1,6 @@
 #include "sessionMapObject.h"
 
+#include <algorithm>
 #include <random>
 #include <sstream>
 #include <iomanip>
@@ -75,6 +76,39 @@ std::string SessionMapObject::getCompactBlockId(const std::string& projectId,
 // ---------------------------------------------------------------------------
 // Counter / allocation
 // ---------------------------------------------------------------------------
+
+std::vector<std::pair<std::string, std::string>>
+SessionMapObject::getCompactMappings(const std::string& projectId) const {
+    // Build the key prefix "projectId\0" to filter entries for this project.
+    std::string keyPrefix = makeKey(projectId, "");
+
+    std::vector<std::pair<std::string, std::string>> result;
+    for (const auto& [key, value] : compactFwdMap_) {
+        if (key.size() > keyPrefix.size() &&
+            key.compare(0, keyPrefix.size(), keyPrefix) == 0) {
+            result.emplace_back(key.substr(keyPrefix.size()), value);
+        }
+    }
+
+    // Sort by prefix group order (f, C, v, p), then numerically within group.
+    auto prefixOrder = [](char c) -> int {
+        switch (c) { case 'f': return 0; case 'C': return 1;
+                     case 'v': return 2; case 'p': return 3; }
+        return 4;
+    };
+    std::sort(result.begin(), result.end(),
+        [&](const std::pair<std::string,std::string>& a,
+            const std::pair<std::string,std::string>& b) {
+            int oa = prefixOrder(a.first.empty() ? 0 : a.first[0]);
+            int ob = prefixOrder(b.first.empty() ? 0 : b.first[0]);
+            if (oa != ob) return oa < ob;
+            try {
+                return std::stoi(a.first.substr(1)) < std::stoi(b.first.substr(1));
+            } catch (...) { return a.first < b.first; }
+        });
+
+    return result;
+}
 
 std::string SessionMapObject::allocateCompactId(const std::string& projectId,
                                                  char componentType,

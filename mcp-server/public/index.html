@@ -98,22 +98,6 @@
     }
 
     /* ── Loading spinner ── */
-    .loading-row {
-      display: flex;
-      gap: 16px;
-    }
-    .loading-panel {
-      flex: 1;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--muted);
-      font-size: 14px;
-    }
     .spinner {
       width: 18px; height: 18px;
       border: 2px solid var(--border);
@@ -123,6 +107,26 @@
       flex-shrink: 0;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-inline {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      padding: 8px 0;
+    }
+    .countdown-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .countdown-badge .cd-num { font-weight: 700; color: var(--accent); min-width: 2ch; display: inline-block; }
 
     /* ── Response row ── */
     .response-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -155,6 +159,53 @@
     }
     .miniken-panel .panel-header .dot { background: var(--accent); }
     .raw-panel     .panel-header .dot { background: var(--muted); }
+
+    .toggle-raw-btn {
+      margin-left: auto;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      padding: 3px 9px;
+      text-transform: uppercase;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .toggle-raw-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .toggle-raw-btn.active { border-color: var(--accent); color: var(--accent); background: #1e1f3a; }
+
+    .raw-inspector {
+      display: none;
+      flex-direction: column;
+      border-top: 1px solid var(--border);
+    }
+    .raw-inspector.visible { display: flex; }
+    .raw-section { border-bottom: 1px solid var(--border); }
+    .raw-section:last-child { border-bottom: none; }
+    .raw-section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 8px 16px 4px;
+    }
+    .raw-section pre {
+      margin: 0;
+      padding: 8px 16px 14px;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text);
+      background: var(--code-bg);
+      overflow-x: auto;
+      max-height: 320px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
 
     .panel-body {
       padding: 16px;
@@ -431,19 +482,59 @@
     qDiv.textContent = query;
     msgBlock.appendChild(qDiv);
 
-    // Loading row
-    const loadingRow = document.createElement("div");
-    loadingRow.className = "loading-row";
-    loadingRow.innerHTML = `
-      <div class="loading-panel">
-        <div class="spinner"></div>
-        <span>miniKen (compressed) …</span>
-      </div>
-      <div class="loading-panel">
-        <div class="spinner"></div>
-        <span>Raw (uncompressed) …</span>
-      </div>`;
-    msgBlock.appendChild(loadingRow);
+    // Response row with two panels (start in loading state)
+    const responseRow = document.createElement("div");
+    responseRow.className = "response-row";
+
+    // Build panel helper
+    function makePanel(cls, label) {
+      const panel = document.createElement("div");
+      panel.className = `response-panel ${cls}`;
+      panel.innerHTML = `
+        <div class="panel-header">
+          <span class="dot"></span> ${label}
+          <button class="toggle-raw-btn" disabled>Show Raw</button>
+        </div>
+        <div class="panel-body">
+          <div class="loading-inline"><div class="spinner"></div><span>Waiting…</span></div>
+        </div>
+        <div class="raw-inspector"></div>`;
+
+      const btn      = panel.querySelector(".toggle-raw-btn");
+      const inspector = panel.querySelector(".raw-inspector");
+      btn.addEventListener("click", () => {
+        const on = inspector.classList.toggle("visible");
+        btn.textContent = on ? "Hide Raw" : "Show Raw";
+        btn.classList.toggle("active", on);
+        chat.scrollTop = chat.scrollHeight;
+      });
+      return panel;
+    }
+
+    function fillInspector(panel, rawRequest, rawResponse) {
+      const inspector = panel.querySelector(".raw-inspector");
+      inspector.innerHTML = `
+        <div class="raw-section">
+          <div class="raw-section-label">Request</div>
+          <pre>${escHtml(rawRequest ?? "(not available)")}</pre>
+        </div>
+        <div class="raw-section">
+          <div class="raw-section-label">Response</div>
+          <pre>${escHtml(rawResponse ?? "(not available)")}</pre>
+        </div>`;
+      const btn = panel.querySelector(".toggle-raw-btn");
+      btn.disabled = false;
+    }
+
+    const mkPanel  = makePanel("miniken-panel", "miniKen — Compressed");
+    const rawPanel = makePanel("raw-panel",     "Raw — Uncompressed");
+
+    mkPanel.querySelector(".panel-body").innerHTML =
+      `<div class="loading-inline"><div class="spinner"></div><span>Running compressed query…</span></div>`;
+
+    responseRow.appendChild(mkPanel);
+    responseRow.appendChild(rawPanel);
+    msgBlock.appendChild(responseRow);
     chat.appendChild(msgBlock);
     chat.scrollTop = chat.scrollHeight;
 
@@ -452,27 +543,18 @@
     queryEl.style.height = "auto";
     sendBtn.disabled = true;
 
-    try {
-      const res  = await fetch("/api/query", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ query, files: fileCopy }),
-      });
-      const data = await res.json();
+    let miniKenData = null;
+    let rawData     = null;
+    let countdownInterval = null;
 
-      if (!res.ok) throw new Error(data.error ?? "Server error");
-
-      // Remove loading
-      loadingRow.remove();
-
-      // Metrics bar
-      const m       = data.miniKen?.metrics ?? {};
-      const rawIn   = data.raw?.inputTokens  ?? 0;
-      const rawOut  = data.raw?.outputTokens ?? 0;
+    function tryRenderMetrics() {
+      if (!miniKenData || !rawData) return;
+      const m       = miniKenData.metrics ?? {};
+      const rawIn   = rawData.inputTokens  ?? 0;
+      const rawOut  = rawData.outputTokens ?? 0;
       const saved   = m.tokensSaved ?? (rawIn - (m.withCompression ?? 0));
       const savePct = m.savingsPct  ?? (rawIn > 0 ? Math.round(100 * saved / rawIn) : 0);
       const isGain  = saved > 0;
-
       const metricsBar = document.createElement("div");
       metricsBar.className = "metrics-bar";
       metricsBar.innerHTML = `
@@ -491,28 +573,81 @@
         <span class="saved-badge ${isGain ? "" : "negative"}">
           ${isGain ? "▼" : "▲"} ${Math.abs(saved)} tokens (${Math.abs(savePct)}% ${isGain ? "saved" : "more"})
         </span>`;
-      msgBlock.appendChild(metricsBar);
+      msgBlock.insertBefore(metricsBar, responseRow);
+    }
 
-      // Response row
-      const responseRow = document.createElement("div");
-      responseRow.className = "response-row";
-      responseRow.innerHTML = `
-        <div class="response-panel miniken-panel">
-          <div class="panel-header">
-            <span class="dot"></span> miniKen — Compressed
-          </div>
-          <div class="panel-body">${renderMd(data.miniKen?.response ?? "")}</div>
-        </div>
-        <div class="response-panel raw-panel">
-          <div class="panel-header">
-            <span class="dot"></span> Raw — Uncompressed
-          </div>
-          <div class="panel-body">${renderMd(data.raw?.response ?? "")}</div>
-        </div>`;
-      msgBlock.appendChild(responseRow);
+    try {
+      const res = await fetch("/api/query/stream", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ query, files: fileCopy }),
+      });
 
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Server error");
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        // Process all complete SSE events (delimited by \n\n)
+        let boundary;
+        while ((boundary = buf.indexOf("\n\n")) !== -1) {
+          const chunk = buf.slice(0, boundary);
+          buf = buf.slice(boundary + 2);
+
+          let event = "message", data = "";
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("event: "))      event = line.slice(7);
+            else if (line.startsWith("data: "))  data  = line.slice(6);
+          }
+
+          if (event === "miniken") {
+            miniKenData = JSON.parse(data);
+            mkPanel.querySelector(".panel-body").innerHTML = renderMd(miniKenData.response ?? "");
+            fillInspector(mkPanel, miniKenData.rawRequest, miniKenData.rawResponse);
+            chat.scrollTop = chat.scrollHeight;
+            tryRenderMetrics();
+
+          } else if (event === "countdown") {
+            const { seconds } = JSON.parse(data);
+            let remaining = seconds;
+            // Show countdown badge inside raw panel's loading body
+            rawPanel.querySelector(".panel-body").innerHTML = `
+              <div class="loading-inline">
+                <div class="spinner"></div>
+                <span>Rate-limit cooldown — starting raw query in&nbsp;</span>
+                <span class="countdown-badge"><span class="cd-num">${remaining}</span>s</span>
+              </div>`;
+            countdownInterval = setInterval(() => {
+              remaining--;
+              const cdNum = rawPanel.querySelector(".cd-num");
+              if (cdNum) cdNum.textContent = remaining;
+              if (remaining <= 0) { clearInterval(countdownInterval); countdownInterval = null; }
+            }, 1000);
+
+          } else if (event === "raw") {
+            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+            rawData = JSON.parse(data);
+            rawPanel.querySelector(".panel-body").innerHTML = renderMd(rawData.response ?? "");
+            fillInspector(rawPanel, rawData.rawRequest, rawData.rawResponse);
+            chat.scrollTop = chat.scrollHeight;
+            tryRenderMetrics();
+
+          } else if (event === "error") {
+            throw new Error(JSON.parse(data).message);
+          }
+        }
+      }
     } catch (err) {
-      loadingRow.remove();
+      if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
       const errDiv = document.createElement("div");
       errDiv.style.cssText = "color:#ef4444;font-size:13px;padding:8px 0";
       errDiv.textContent = "Error: " + err.message;

@@ -41,7 +41,8 @@ static const LanguageProfile* profileForPath(const std::string& filePath) {
 
 std::string Orchestrator::buildPrompt(
     const std::string& userQuery,
-    const std::vector<std::pair<std::string, std::string>>& compressedFiles) {
+    const std::vector<std::pair<std::string, std::string>>& compressedFiles,
+    const std::vector<std::pair<std::string, std::string>>& symbolTable) {
 
     // Load model instructions from static resource.
     std::string instructions;
@@ -60,6 +61,15 @@ std::string Orchestrator::buildPrompt(
     if (!instructions.empty()) {
         prompt += instructions;
         prompt += "\n\n";
+    }
+
+    // Emit the symbol table so the model has the full compact → original mapping.
+    if (!symbolTable.empty()) {
+        prompt += "SYMBOL TABLE (compact \u2192 original):\n";
+        for (const auto& [compact, original] : symbolTable) {
+            prompt += "  " + compact + " = " + original + "\n";
+        }
+        prompt += "\n";
     }
 
     prompt += "USER QUERY:\n";
@@ -157,7 +167,9 @@ static long countTokens(const std::string& prompt,
     try { return std::stol(out); } catch (...) { return 0; }
 }
 
-std::string Orchestrator::callModel(const std::string& prompt, ApiUsage& outUsage) {
+std::string Orchestrator::callModel(const std::string& prompt, ApiUsage& outUsage,
+                                    std::string& outRawJson,
+                                    std::string& outRequestJson) {
     const char* apiKey = std::getenv("ANTHROPIC_API_KEY");
     if (!apiKey || std::string(apiKey).empty()) {
         std::cerr << "[miniKen] ANTHROPIC_API_KEY not set — using stub response.\n";
@@ -177,6 +189,8 @@ std::string Orchestrator::callModel(const std::string& prompt, ApiUsage& outUsag
         "\"max_tokens\":8192,"
         "\"messages\":[{\"role\":\"user\",\"content\":\""
         + jsonEscape(prompt) + "\"}]}";
+
+    outRequestJson = body;
 
     ::write(fd, body.c_str(), body.size());
     ::close(fd);
@@ -216,6 +230,12 @@ std::string Orchestrator::callModel(const std::string& prompt, ApiUsage& outUsag
         if (!out.empty() && out.back() == '\n') out.pop_back();
         return out;
     };
+
+    // Capture full raw JSON before deleting the temp file.
+    {
+        std::ifstream f(respPath, std::ios::binary);
+        if (f) { std::ostringstream ss; ss << f.rdbuf(); outRawJson = ss.str(); }
+    }
 
     std::string response   = jqGet(".content[0].text");
     std::string inTokStr   = jqGet(".usage.input_tokens");
@@ -322,9 +342,13 @@ std::string Orchestrator::run(const std::string&              userQuery,
         }
     }
 
-    // Step 2: build both prompts so we can compare token counts.
-    std::string uncompressedPrompt = buildPrompt(userQuery, originalFiles);
-    std::string compressedPrompt   = buildPrompt(userQuery, compressedFiles);
+    // Step 2: collect symbol table and build both prompts.
+    auto symbolTable = session.getCompactMappings(
+        projects.empty() ? "" : projects[0].projectId);
+
+    // Uncompressed prompt has no symbol table (it uses real names already).
+    std::string uncompressedPrompt = buildPrompt(userQuery, originalFiles, {});
+    std::string compressedPrompt   = buildPrompt(userQuery, compressedFiles, symbolTable);
 
     // Step 3: count uncompressed tokens (exact, via /v1/messages/count_tokens).
     const char* apiKey = std::getenv("ANTHROPIC_API_KEY");
@@ -335,9 +359,11 @@ std::string Orchestrator::run(const std::string&              userQuery,
     if (apiKey && std::string(apiKey).size() > 0)
         uncompressedTokens = countTokens(uncompressedPrompt, apiKey, modelId);
 
-    // Step 4: call model, capture real token usage.
+    // Step 4: call model, capture real token usage + raw JSON.
     ApiUsage usage;
-    std::string rawResponse = callModel(compressedPrompt, usage);
+    std::string rawApiJson;
+    std::string rawRequestJson;
+    std::string rawResponse = callModel(compressedPrompt, usage, rawApiJson, rawRequestJson);
 
     // Step 5: print token metrics to stdout (visible through MCP layer).
     {
@@ -359,6 +385,14 @@ std::string Orchestrator::run(const std::string&              userQuery,
         std::cout << "-----------------------------\n\n";
     }
 
+    // Emit the request JSON and raw API response so the web UI can display them.
+    std::cout << "=== MINIKEN_COMPRESSED_PROMPT_BEGIN ===\n"
+              << rawRequestJson
+              << "\n=== MINIKEN_COMPRESSED_PROMPT_END ===\n";
+    std::cout << "=== MINIKEN_RAW_API_RESPONSE_BEGIN ===\n"
+              << rawApiJson
+              << "\n=== MINIKEN_RAW_API_RESPONSE_END ===\n";
+
     // Step 5: parse model response.
     ModelResponse modelResp = parseModelResponse(rawResponse);
 
@@ -378,7 +412,18 @@ std::string Orchestrator::run(const std::string&              userQuery,
         }
     }
 
-    // Step 7: decompress textual response.
+    // Step 7: assemble the final response.
+    // Apply RelaxTextual to the preamble, then re-attach each file section
+    // (which ResponseBuilder already decompressed for code identifiers, but may
+    // still contain {{marker}} references in surrounding text).
     std::string pid = projects.empty() ? "" : projects[0].projectId;
-    return RelaxTextual::apply(session, pid, modelResp.textual);
+
+    std::string finalResponse = RelaxTextual::apply(session, pid, modelResp.textual);
+
+    for (const auto& [name, content] : modelResp.files) {
+        finalResponse += "\n[FILE: " + name + "]\n";
+        finalResponse += RelaxTextual::apply(session, pid, content);
+    }
+
+    return finalResponse;
 }

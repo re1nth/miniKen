@@ -125,7 +125,8 @@ else
   info "Building tree-sitter-cpp grammar from source…"
   TS_CPP_SRC="/tmp/tree-sitter-cpp"
 
-  if [ ! -d "$TS_CPP_SRC" ]; then
+  if [ ! -f "$TS_CPP_SRC/src/parser.c" ]; then
+    rm -rf "$TS_CPP_SRC"
     git clone --quiet --depth 1 \
       https://github.com/tree-sitter/tree-sitter-cpp "$TS_CPP_SRC"
   fi
