@@ -36,6 +36,11 @@ public:
     std::vector<std::pair<std::string, std::string>> getCompactMappings(
         const std::string& projectId) const;
 
+    // File → language mapping (e.g. "wal.c" → "C", "manager.cpp" → "C++").
+    // Stored during compression so the decompressor can recover the right grammar.
+    void storeFileLanguage(const std::string& fileName, const std::string& language);
+    std::string getFileLanguage(const std::string& fileName) const;
+
 private:
     std::string sessionId_;
 
@@ -50,6 +55,9 @@ private:
 
     // "projectId\0prefix" → next integer counter
     std::unordered_map<std::string, int> counters_;
+
+    // fileName → language name ("C", "C++", "Go", …)
+    std::unordered_map<std::string, std::string> fileLangMap_;
 
     static std::string makeKey(const std::string& a, const std::string& b);
 };

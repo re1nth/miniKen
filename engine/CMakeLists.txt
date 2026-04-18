@@ -14,6 +14,7 @@ add_library(miniKen_engine STATIC
     decompressor/relaxCommentOut.cpp
     decompressor/relaxCompactBlock.cpp
     decompressor/relaxTextual.cpp
+    parser/cProfile.cpp
     parser/cppProfile.cpp
     parser/querySquasher.cpp
     parser/responseBuilder.cpp
@@ -35,29 +36,36 @@ find_library(TREE_SITTER_LIB
     HINTS /usr/local/lib /usr/lib ${TREE_SITTER_ROOT}/lib
 )
 
+find_library(TREE_SITTER_C_LIB
+    NAMES tree-sitter-c
+    HINTS /usr/local/lib /usr/lib /opt/homebrew/lib ${TREE_SITTER_ROOT}/lib
+)
+
 find_library(TREE_SITTER_CPP_LIB
     NAMES tree-sitter-cpp
-    HINTS /usr/local/lib /usr/lib ${TREE_SITTER_ROOT}/lib
+    HINTS /usr/local/lib /usr/lib /opt/homebrew/lib ${TREE_SITTER_ROOT}/lib
 )
 
 find_path(TREE_SITTER_INCLUDE
     NAMES tree_sitter/api.h
-    HINTS /usr/local/include /usr/include ${TREE_SITTER_ROOT}/include
+    HINTS /usr/local/include /usr/include /opt/homebrew/include ${TREE_SITTER_ROOT}/include
 )
 
-if(TREE_SITTER_LIB AND TREE_SITTER_CPP_LIB AND TREE_SITTER_INCLUDE)
+if(TREE_SITTER_LIB AND TREE_SITTER_C_LIB AND TREE_SITTER_CPP_LIB AND TREE_SITTER_INCLUDE)
     message(STATUS "tree-sitter found: ${TREE_SITTER_LIB}")
+    message(STATUS "tree-sitter-c found: ${TREE_SITTER_C_LIB}")
     message(STATUS "tree-sitter-cpp found: ${TREE_SITTER_CPP_LIB}")
 
     target_include_directories(miniKen_engine PRIVATE ${TREE_SITTER_INCLUDE})
     target_link_libraries(miniKen_engine PUBLIC
         ${TREE_SITTER_LIB}
+        ${TREE_SITTER_C_LIB}
         ${TREE_SITTER_CPP_LIB}
     )
     target_include_directories(miniKen_engine PUBLIC ${TREE_SITTER_INCLUDE})
 else()
     message(WARNING
-        "tree-sitter or tree-sitter-cpp not found. "
+        "tree-sitter libraries not found. "
         "Set TREE_SITTER_ROOT to the installation prefix, e.g.:\n"
         "  cmake -DTREE_SITTER_ROOT=/opt/homebrew .. \n"
         "The library will not link until these are resolved.")

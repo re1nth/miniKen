@@ -3,8 +3,8 @@
 #
 # Runs the first time OR on any subsequent run:
 #   1. Checks system prerequisites
-#   2. Builds tree-sitter-cpp grammar (if missing)
-#   3. Detects tree-sitter install root
+#   2. Detects tree-sitter install root
+#   3. Builds tree-sitter-c and tree-sitter-cpp grammars (if missing)
 #   4. Builds the miniKen binary (cmake / make, incremental)
 #   5. Installs + builds the mcp-server (npm install, tsc)
 #   6. Launches the server  →  http://localhost:4040
@@ -116,27 +116,72 @@ if [ -z "$TS_ROOT" ]; then
 fi
 ok "tree-sitter at $TS_ROOT"
 
-# ── 3. Build tree-sitter-cpp grammar ─────────────────────────────────────────
-TS_CPP_LIB="/tmp/libtree-sitter-cpp.a"
+# ── 3. Build tree-sitter-c and tree-sitter-cpp grammars ───────────────────────
 
-if [ -f "$TS_CPP_LIB" ]; then
-  ok "tree-sitter-cpp grammar already built ($TS_CPP_LIB)"
-else
-  info "Building tree-sitter-cpp grammar from source…"
-  TS_CPP_SRC="/tmp/tree-sitter-cpp"
+# Helper: resolve a grammar library, using an installed copy if present,
+# otherwise cloning + compiling from the official tree-sitter GitHub repo.
+#
+# Usage: build_ts_grammar <name> <out_lib_var> [scanner]
+#   <name>        e.g. "tree-sitter-c" or "tree-sitter-cpp"
+#   <out_lib_var> shell variable name to set with the resolved library path
+#   [scanner]     pass "scanner" if the grammar has a scanner.c
+build_ts_grammar() {
+  local name="$1"
+  local out_lib_var="$2"
+  local has_scanner="${3:-}"
+  
+  # Use eval to set the variable passed by name
+  eval "$out_lib_var=\"\""
 
-  if [ ! -f "$TS_CPP_SRC/src/parser.c" ]; then
-    rm -rf "$TS_CPP_SRC"
-    git clone --quiet --depth 1 \
-      https://github.com/tree-sitter/tree-sitter-cpp "$TS_CPP_SRC"
+  # Prefer a copy already installed under the tree-sitter root or Homebrew.
+  for candidate in \
+      "$TS_ROOT/lib/lib${name}.a" \
+      "$TS_ROOT/lib/lib${name}.dylib" \
+      "/opt/homebrew/lib/lib${name}.a" \
+      "/opt/homebrew/lib/lib${name}.dylib"; do
+    if [ -f "$candidate" ]; then
+      out_lib="$candidate"
+      ok "${name} found at $candidate"
+      return
+    fi
+  done
+
+  # Not installed — build from source into /tmp.
+  local lib_path="/tmp/lib${name}.a"
+  if [ -f "$lib_path" ]; then
+    out_lib="$lib_path"
+    ok "${name} already built ($lib_path)"
+    return
   fi
 
-  cc -O2 -c "$TS_CPP_SRC/src/parser.c"  -o /tmp/ts_cpp_parser.o
-  cc -O2 -c "$TS_CPP_SRC/src/scanner.c" -o /tmp/ts_cpp_scanner.o
-  ar rcs "$TS_CPP_LIB" /tmp/ts_cpp_parser.o /tmp/ts_cpp_scanner.o
-  rm -f /tmp/ts_cpp_parser.o /tmp/ts_cpp_scanner.o
-  ok "tree-sitter-cpp grammar built"
-fi
+  info "Building ${name} from source…"
+  local src="/tmp/${name}"
+  if [ ! -f "$src/src/parser.c" ]; then
+    rm -rf "$src"
+    git clone --quiet --depth 1 \
+      "https://github.com/tree-sitter/${name}" "$src"
+  fi
+
+  cc -O2 -c "$src/src/parser.c" -o "/tmp/${name}_parser.o"
+  local objs="/tmp/${name}_parser.o"
+
+  if [ -n "$has_scanner" ]; then
+    cc -O2 -c "$src/src/scanner.c" -o "/tmp/${name}_scanner.o"
+    objs="$objs /tmp/${name}_scanner.o"
+  fi
+
+  ar rcs "$lib_path" $objs
+  rm -f /tmp/${name}_parser.o /tmp/${name}_scanner.o 2>/dev/null || true
+
+  out_lib="$lib_path"
+  ok "${name} built ($lib_path)"
+}
+
+TS_C_LIB=""
+TS_CPP_LIB=""
+
+build_ts_grammar "tree-sitter-c"   TS_C_LIB
+build_ts_grammar "tree-sitter-cpp" TS_CPP_LIB scanner
 
 echo ""
 
@@ -147,6 +192,7 @@ BUILD_DIR="$REPO/testbed_build"
 
 cmake -S "$REPO/testbed" -B "$BUILD_DIR" \
       -DTREE_SITTER_ROOT="$TS_ROOT" \
+      -DTREE_SITTER_C_LIB="$TS_C_LIB" \
       -DTREE_SITTER_CPP_LIB="$TS_CPP_LIB" \
       2>&1 | grep -E "^(--|CMake Warning|CMake Error)" || true
 

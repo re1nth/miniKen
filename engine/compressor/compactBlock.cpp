@@ -29,6 +29,21 @@ bool CompactBlock::isPrimitive(const std::string& name) {
         "i8",  "i16",  "i32",  "i64",  "i128",  "isize",
         "u8",  "u16",  "u32",  "u64",  "u128",  "usize",
         "f32", "f64",
+        // C/C++ control-flow and reserved keywords — defence against tree-sitter
+        // error-recovery misclassifying these as identifier nodes.
+        "if", "else", "for", "while", "do", "switch", "case", "default",
+        "return", "break", "continue", "goto",
+        "sizeof", "alignof", "typeof", "offsetof",
+        "typedef", "extern", "static", "register", "volatile", "const",
+        "inline", "restrict", "_Bool", "_Complex", "_Atomic",
+        "struct", "union", "enum",
+        "namespace", "class", "template", "typename",
+        "new", "delete", "this", "virtual", "override", "final",
+        "public", "private", "protected",
+        "throw", "try", "catch", "noexcept",
+        "operator", "explicit", "friend", "using", "decltype",
+        "static_assert", "constexpr", "consteval", "constinit",
+        "true", "false", "NULL",
     };
     return kPrimitives.count(name) > 0;
 }

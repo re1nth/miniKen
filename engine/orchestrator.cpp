@@ -3,9 +3,11 @@
 #include "sessionStore/sessionMapObject.h"
 #include "parser/querySquasher.h"
 #include "parser/responseBuilder.h"
+#include "parser/cProfile.h"
 #include "parser/cppProfile.h"
 #include "decompressor/relaxTextual.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -16,23 +18,83 @@
 #include <unistd.h>
 
 // ---------------------------------------------------------------------------
-// profileForPath — returns nullptr for non-parseable files
+// Language detection
 // ---------------------------------------------------------------------------
 
-static const LanguageProfile* profileForPath(const std::string& filePath) {
-    static const LanguageProfile kCpp = makeCppProfile();
+enum class Language { C, CPP, Go, Python, Ruby, Unknown };
 
-    auto ext = [&]() -> std::string {
-        auto dot = filePath.rfind('.');
-        if (dot == std::string::npos) return {};
-        return filePath.substr(dot);
-    }();
+static std::string fileExtension(const std::string& path) {
+    auto dot = path.rfind('.');
+    if (dot == std::string::npos) return {};
+    return path.substr(dot);
+}
+
+static std::string fileDirectory(const std::string& path) {
+    auto slash = path.rfind('/');
+    if (slash == std::string::npos) return ".";
+    return path.substr(0, slash);
+}
+
+static std::string fileStem(const std::string& path) {
+    auto slash = path.rfind('/');
+    std::string name = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    auto dot = name.rfind('.');
+    return (dot == std::string::npos) ? name : name.substr(0, dot);
+}
+
+// Detect the language of a file. For .h files, look for a paired .c file
+// on the filesystem in the same directory. If found, it's C; otherwise C++.
+static Language detectLanguage(const std::string& filePath) {
+    std::string ext = fileExtension(filePath);
 
     if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" ||
-        ext == ".c"   || ext == ".h"  || ext == ".hpp" || ext == ".hxx")
-        return &kCpp;
+        ext == ".hpp" || ext == ".hxx")
+        return Language::CPP;
 
-    return nullptr;
+    if (ext == ".c")
+        return Language::C;
+
+    if (ext == ".h") {
+        std::string paired = fileDirectory(filePath) + "/" + fileStem(filePath) + ".c";
+        std::ifstream probe(paired);
+        return probe.good() ? Language::C : Language::CPP;
+    }
+
+    if (ext == ".go") return Language::Go;
+    if (ext == ".py") return Language::Python;
+    if (ext == ".rb") return Language::Ruby;
+
+    return Language::Unknown;
+}
+
+static std::string languageName(Language lang) {
+    switch (lang) {
+        case Language::C:       return "C";
+        case Language::CPP:     return "C++";
+        case Language::Go:      return "Go";
+        case Language::Python:  return "Python";
+        case Language::Ruby:    return "Ruby";
+        default:                return "";
+    }
+}
+
+static Language languageFromName(const std::string& name) {
+    if (name == "C")       return Language::C;
+    if (name == "C++")     return Language::CPP;
+    if (name == "Go")      return Language::Go;
+    if (name == "Python")  return Language::Python;
+    if (name == "Ruby")    return Language::Ruby;
+    return Language::Unknown;
+}
+
+static const LanguageProfile* profileForLanguage(Language lang) {
+    static const LanguageProfile kC   = makeCProfile();
+    static const LanguageProfile kCpp = makeCppProfile();
+    switch (lang) {
+        case Language::C:   return &kC;
+        case Language::CPP: return &kCpp;
+        default:            return nullptr;  // Go/Python/Ruby profiles not yet implemented
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +103,7 @@ static const LanguageProfile* profileForPath(const std::string& filePath) {
 
 std::string Orchestrator::buildPrompt(
     const std::string& userQuery,
-    const std::vector<std::pair<std::string, std::string>>& compressedFiles,
+    const std::vector<CompressedFile>& files,
     const std::vector<std::pair<std::string, std::string>>& symbolTable) {
 
     // Load model instructions from static resource.
@@ -76,11 +138,18 @@ std::string Orchestrator::buildPrompt(
     prompt += userQuery;
     prompt += "\n\n";
 
-    for (const auto& [name, content] : compressedFiles) {
-        prompt += "[FILE: ";
-        prompt += name;
-        prompt += "]\n";
-        prompt += content;
+    // Emit files grouped under [LANGUAGE: X] section headers.
+    // Files are expected to arrive pre-sorted by language.
+    std::string currentLang;
+    for (const auto& file : files) {
+        if (file.language != currentLang) {
+            currentLang = file.language;
+            if (!currentLang.empty()) {
+                prompt += "[LANGUAGE: " + currentLang + "]\n";
+            }
+        }
+        prompt += "[FILE: " + file.fileName + "]\n";
+        prompt += file.content;
         prompt += "\n";
     }
 
@@ -309,11 +378,11 @@ ModelResponse Orchestrator::parseModelResponse(const std::string& rawResponse) {
 std::string Orchestrator::run(const std::string&              userQuery,
                               const std::vector<ProjectFiles>& projects) {
     SessionMapObject session;
+    const std::string projectId = projects.empty() ? "" : projects[0].projectId;
 
-    // Step 1: read original files + compress them.
-    std::vector<std::pair<std::string, std::string>> originalFiles;   // for token estimation
-    std::vector<std::pair<std::string, std::string>> compressedFiles;
-    std::vector<std::pair<std::string, std::string>> fileToProject;   // fileName → projectId
+    // Step 1: detect language, compress, and store filename→language mapping.
+    std::vector<CompressedFile> originalFiles;    // for uncompressed token estimate
+    std::vector<CompressedFile> compressedFiles;
 
     for (const auto& proj : projects) {
         for (const auto& filePath : proj.codeFilePaths) {
@@ -321,30 +390,40 @@ std::string Orchestrator::run(const std::string&              userQuery,
             if (auto pos = filePath.rfind('/'); pos != std::string::npos)
                 fileName = filePath.substr(pos + 1);
 
-            // Read original content first (for uncompressed token estimate).
+            Language lang = detectLanguage(filePath);
+            const LanguageProfile* profile = profileForLanguage(lang);
+
+            // Skip files whose language has no grammar profile.
+            if (!profile) continue;
+
+            std::string langStr = languageName(lang);
+
+            // Store the filename → language mapping for decompression lookup.
+            session.storeFileLanguage(fileName, langStr);
+
+            // Read original content (for uncompressed token estimate).
             std::string original;
             {
                 std::ifstream f(filePath, std::ios::binary);
                 if (f) { std::ostringstream ss; ss << f.rdbuf(); original = ss.str(); }
             }
-            originalFiles.emplace_back(fileName, original);
+            originalFiles.push_back({langStr, fileName, original});
 
-            const LanguageProfile* profile = profileForPath(filePath);
-            std::string compressed;
-            if (profile) {
-                compressed = QuerySquasher::apply(session, proj.projectId, filePath, *profile);
-            } else {
-                compressed = original;  // non-parseable: pass through
-            }
-
-            compressedFiles.emplace_back(fileName, compressed);
-            fileToProject.emplace_back(fileName, proj.projectId);
+            std::string compressed = QuerySquasher::apply(
+                session, proj.projectId, filePath, *profile);
+            compressedFiles.push_back({langStr, fileName, compressed});
         }
     }
 
+    // Sort both lists by language so [LANGUAGE: X] blocks are contiguous in the prompt.
+    auto byLanguage = [](const CompressedFile& a, const CompressedFile& b) {
+        return a.language < b.language;
+    };
+    std::stable_sort(originalFiles.begin(),   originalFiles.end(),   byLanguage);
+    std::stable_sort(compressedFiles.begin(), compressedFiles.end(), byLanguage);
+
     // Step 2: collect symbol table and build both prompts.
-    auto symbolTable = session.getCompactMappings(
-        projects.empty() ? "" : projects[0].projectId);
+    auto symbolTable = session.getCompactMappings(projectId);
 
     // Uncompressed prompt has no symbol table (it uses real names already).
     std::string uncompressedPrompt = buildPrompt(userQuery, originalFiles, {});
@@ -397,18 +476,14 @@ std::string Orchestrator::run(const std::string&              userQuery,
     ModelResponse modelResp = parseModelResponse(rawResponse);
 
     // Step 6: decompress modified files.
-    auto getProjectId = [&](const std::string& name) -> std::string {
-        for (const auto& [fn, pid] : fileToProject) {
-            if (fn == name) return pid;
-        }
-        return projects.empty() ? "" : projects[0].projectId;
-    };
-
+    // Use the session's filename→language map (stored during compression) to
+    // recover the correct grammar — this is especially important for .h files
+    // whose language was determined by filesystem pairing, not extension alone.
     for (auto& [name, content] : modelResp.files) {
-        std::string pid = getProjectId(name);
-        const LanguageProfile* profile = profileForPath(name);
+        std::string langStr = session.getFileLanguage(name);
+        const LanguageProfile* profile = profileForLanguage(languageFromName(langStr));
         if (profile) {
-            content = ResponseBuilder::apply(session, pid, content, *profile);
+            content = ResponseBuilder::apply(session, projectId, content, *profile);
         }
     }
 
@@ -416,13 +491,11 @@ std::string Orchestrator::run(const std::string&              userQuery,
     // Apply RelaxTextual to the preamble, then re-attach each file section
     // (which ResponseBuilder already decompressed for code identifiers, but may
     // still contain {{marker}} references in surrounding text).
-    std::string pid = projects.empty() ? "" : projects[0].projectId;
-
-    std::string finalResponse = RelaxTextual::apply(session, pid, modelResp.textual);
+    std::string finalResponse = RelaxTextual::apply(session, projectId, modelResp.textual);
 
     for (const auto& [name, content] : modelResp.files) {
         finalResponse += "\n[FILE: " + name + "]\n";
-        finalResponse += RelaxTextual::apply(session, pid, content);
+        finalResponse += RelaxTextual::apply(session, projectId, content);
     }
 
     return finalResponse;

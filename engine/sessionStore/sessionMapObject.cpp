@@ -110,6 +110,16 @@ SessionMapObject::getCompactMappings(const std::string& projectId) const {
     return result;
 }
 
+void SessionMapObject::storeFileLanguage(const std::string& fileName,
+                                          const std::string& language) {
+    fileLangMap_[fileName] = language;
+}
+
+std::string SessionMapObject::getFileLanguage(const std::string& fileName) const {
+    auto it = fileLangMap_.find(fileName);
+    return it != fileLangMap_.end() ? it->second : std::string{};
+}
+
 std::string SessionMapObject::allocateCompactId(const std::string& projectId,
                                                  char componentType,
                                                  const std::string& originalName) {

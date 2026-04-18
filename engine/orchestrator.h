@@ -19,9 +19,17 @@ struct ApiUsage {
     long output_tokens = 0;
 };
 
+// A single file entry carrying its detected language, name, and content.
+// Used by buildPrompt to group files under [LANGUAGE: X] section headers.
+struct CompressedFile {
+    std::string language;   // "C", "C++", "Go", etc.
+    std::string fileName;
+    std::string content;
+};
+
 class Orchestrator {
 public:
-    // Compresses all project files, stubs a model call, then decompresses
+    // Compresses all project files, calls the model, then decompresses
     // the response.  Returns the decompressed textual reply.
     static std::string run(const std::string&              userQuery,
                            const std::vector<ProjectFiles>& projects);
@@ -29,7 +37,7 @@ public:
 private:
     static std::string buildPrompt(
         const std::string& userQuery,
-        const std::vector<std::pair<std::string, std::string>>& compressedFiles,
+        const std::vector<CompressedFile>& files,
         const std::vector<std::pair<std::string, std::string>>& symbolTable);
 
     static std::string callModel(const std::string& prompt, ApiUsage& outUsage,
