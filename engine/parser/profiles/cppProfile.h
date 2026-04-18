@@ -1,4 +1,4 @@
 #pragma once
-#include "languageProfile.h"
+#include "../languageProfile.h"
 
 LanguageProfile makeCppProfile();

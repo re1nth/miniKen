@@ -5,7 +5,9 @@
 #include "sessionStore/sessionMapObject.h"
 #include "parser/querySquasher.h"
 #include "parser/responseBuilder.h"
-#include "parser/cppProfile.h"
+#include "parser/profiles/cppProfile.h"
+#include "parser/profiles/goProfile.h"
+#include "parser/profiles/pythonProfile.h"
 
 #include <cstdio>
 #include <fstream>
@@ -251,4 +253,188 @@ TEST(roundtrip_all_original_identifiers_present_in_restored) {
     EXPECT_CONTAINS(restored, "insertCustomer");
     EXPECT_CONTAINS(restored, "deleteCustomer");
     EXPECT_CONTAINS(restored, "fetchCustomerById");
+}
+
+// ─── Go tests ─────────────────────────────────────────────────────────────────
+
+static std::string writeTempGo(const std::string& content) {
+    char tmpl[] = "/tmp/mk_test_XXXXXX.go";
+    int fd = mkstemps(tmpl, 3);
+    if (fd < 0) throw std::runtime_error("mkstemps failed");
+    ::write(fd, content.c_str(), content.size());
+    ::close(fd);
+    return std::string(tmpl);
+}
+
+TEST(go_function_name_is_compressed) {
+    SessionMapObject s;
+    std::string src =
+        "package main\n"
+        "func calculateTotalPrice(unitPrice int, qty int) int {\n"
+        "    return unitPrice * qty\n"
+        "}\n";
+    auto path = writeTempGo(src);
+    std::string out = QuerySquasher::apply(s, "proj", path, makeGoProfile());
+    EXPECT_NOT_CONTAINS(out, "calculateTotalPrice");
+    EXPECT_CONTAINS(out, "f1");
+}
+
+TEST(go_struct_name_is_compressed) {
+    SessionMapObject s;
+    std::string src =
+        "package main\n"
+        "type CustomerRecord struct {\n"
+        "    Name string\n"
+        "    Age  int\n"
+        "}\n";
+    auto path = writeTempGo(src);
+    std::string out = QuerySquasher::apply(s, "proj", path, makeGoProfile());
+    EXPECT_NOT_CONTAINS(out, "CustomerRecord");
+    EXPECT_CONTAINS(out, "C1");
+}
+
+TEST(go_method_name_is_compressed) {
+    SessionMapObject s;
+    std::string src =
+        "package main\n"
+        "type CustomerRecord struct{ Name string }\n"
+        "func (c CustomerRecord) GetName() string {\n"
+        "    return c.Name\n"
+        "}\n";
+    auto path = writeTempGo(src);
+    std::string out = QuerySquasher::apply(s, "proj", path, makeGoProfile());
+    EXPECT_NOT_CONTAINS(out, "GetName");
+}
+
+TEST(go_session_maps_function_symbol) {
+    SessionMapObject s;
+    std::string src =
+        "package main\n"
+        "func computeDiscount(price float64) float64 {\n"
+        "    return price * 0.9\n"
+        "}\n";
+    auto path = writeTempGo(src);
+    QuerySquasher::apply(s, "proj", path, makeGoProfile());
+    EXPECT_EQ(s.getCompactBlockId("proj", "f1"), "computeDiscount");
+}
+
+TEST(go_roundtrip_function_name_restored) {
+    SessionMapObject s;
+    std::string src =
+        "package main\n"
+        "func processOrder(orderId int) bool {\n"
+        "    return orderId > 0\n"
+        "}\n";
+    auto path = writeTempGo(src);
+    std::string compressed = QuerySquasher::apply(s, "proj", path, makeGoProfile());
+    EXPECT_NOT_CONTAINS(compressed, "processOrder");
+    std::string restored = ResponseBuilder::apply(s, "proj", compressed, makeGoProfile());
+    EXPECT_CONTAINS(restored, "processOrder");
+}
+
+TEST(go_roundtrip_struct_and_method_restored) {
+    SessionMapObject s;
+    std::string src =
+        "package main\n"
+        "type ShoppingCart struct {\n"
+        "    Items []string\n"
+        "}\n"
+        "func (cart ShoppingCart) AddItem(item string) {\n"
+        "}\n";
+    auto path = writeTempGo(src);
+    std::string compressed = QuerySquasher::apply(s, "proj", path, makeGoProfile());
+    EXPECT_NOT_CONTAINS(compressed, "ShoppingCart");
+    std::string restored = ResponseBuilder::apply(s, "proj", compressed, makeGoProfile());
+    EXPECT_CONTAINS(restored, "ShoppingCart");
+    EXPECT_CONTAINS(restored, "AddItem");
+}
+
+// ─── Python tests ─────────────────────────────────────────────────────────────
+
+static std::string writeTempPy(const std::string& content) {
+    char tmpl[] = "/tmp/mk_test_XXXXXX.py";
+    int fd = mkstemps(tmpl, 3);
+    if (fd < 0) throw std::runtime_error("mkstemps failed");
+    ::write(fd, content.c_str(), content.size());
+    ::close(fd);
+    return std::string(tmpl);
+}
+
+TEST(python_function_name_is_compressed) {
+    SessionMapObject s;
+    std::string src =
+        "def calculate_total_price(unit_price, qty):\n"
+        "    return unit_price * qty\n";
+    auto path = writeTempPy(src);
+    std::string out = QuerySquasher::apply(s, "proj", path, makePythonProfile());
+    EXPECT_NOT_CONTAINS(out, "calculate_total_price");
+    EXPECT_CONTAINS(out, "f1");
+}
+
+TEST(python_class_name_is_compressed) {
+    SessionMapObject s;
+    std::string src =
+        "class CustomerRecord:\n"
+        "    def __init__(self, name):\n"
+        "        self.name = name\n";
+    auto path = writeTempPy(src);
+    std::string out = QuerySquasher::apply(s, "proj", path, makePythonProfile());
+    EXPECT_NOT_CONTAINS(out, "CustomerRecord");
+    EXPECT_CONTAINS(out, "C1");
+}
+
+TEST(python_session_maps_function_symbol) {
+    SessionMapObject s;
+    std::string src =
+        "def compute_discount(price):\n"
+        "    return price * 0.9\n";
+    auto path = writeTempPy(src);
+    QuerySquasher::apply(s, "proj", path, makePythonProfile());
+    EXPECT_EQ(s.getCompactBlockId("proj", "f1"), "compute_discount");
+}
+
+TEST(python_decorated_function_name_is_compressed) {
+    SessionMapObject s;
+    std::string src =
+        "import functools\n"
+        "\n"
+        "@functools.cache\n"
+        "def expensive_computation(n):\n"
+        "    return n * n\n";
+    auto path = writeTempPy(src);
+    std::string out = QuerySquasher::apply(s, "proj", path, makePythonProfile());
+    EXPECT_NOT_CONTAINS(out, "expensive_computation");
+}
+
+TEST(python_roundtrip_function_name_restored) {
+    SessionMapObject s;
+    std::string src =
+        "def process_order(order_id):\n"
+        "    return order_id > 0\n";
+    auto path = writeTempPy(src);
+    std::string compressed = QuerySquasher::apply(s, "proj", path, makePythonProfile());
+    EXPECT_NOT_CONTAINS(compressed, "process_order");
+    std::string restored = ResponseBuilder::apply(s, "proj", compressed, makePythonProfile());
+    EXPECT_CONTAINS(restored, "process_order");
+}
+
+TEST(python_roundtrip_class_and_methods_restored) {
+    SessionMapObject s;
+    std::string src =
+        "class ShoppingCart:\n"
+        "    def __init__(self):\n"
+        "        self.items = []\n"
+        "\n"
+        "    def add_item(self, item):\n"
+        "        self.items.append(item)\n"
+        "\n"
+        "    def get_total(self):\n"
+        "        return len(self.items)\n";
+    auto path = writeTempPy(src);
+    std::string compressed = QuerySquasher::apply(s, "proj", path, makePythonProfile());
+    EXPECT_NOT_CONTAINS(compressed, "ShoppingCart");
+    std::string restored = ResponseBuilder::apply(s, "proj", compressed, makePythonProfile());
+    EXPECT_CONTAINS(restored, "ShoppingCart");
+    EXPECT_CONTAINS(restored, "add_item");
+    EXPECT_CONTAINS(restored, "get_total");
 }

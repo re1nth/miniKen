@@ -3,8 +3,7 @@
 #include "sessionStore/sessionMapObject.h"
 #include "parser/querySquasher.h"
 #include "parser/responseBuilder.h"
-#include "parser/cProfile.h"
-#include "parser/cppProfile.h"
+#include "parser/languageRegistry.h"
 #include "decompressor/relaxTextual.h"
 
 #include <algorithm>
@@ -16,86 +15,6 @@
 #include <regex>
 #include <stdexcept>
 #include <unistd.h>
-
-// ---------------------------------------------------------------------------
-// Language detection
-// ---------------------------------------------------------------------------
-
-enum class Language { C, CPP, Go, Python, Ruby, Unknown };
-
-static std::string fileExtension(const std::string& path) {
-    auto dot = path.rfind('.');
-    if (dot == std::string::npos) return {};
-    return path.substr(dot);
-}
-
-static std::string fileDirectory(const std::string& path) {
-    auto slash = path.rfind('/');
-    if (slash == std::string::npos) return ".";
-    return path.substr(0, slash);
-}
-
-static std::string fileStem(const std::string& path) {
-    auto slash = path.rfind('/');
-    std::string name = (slash == std::string::npos) ? path : path.substr(slash + 1);
-    auto dot = name.rfind('.');
-    return (dot == std::string::npos) ? name : name.substr(0, dot);
-}
-
-// Detect the language of a file. For .h files, look for a paired .c file
-// on the filesystem in the same directory. If found, it's C; otherwise C++.
-static Language detectLanguage(const std::string& filePath) {
-    std::string ext = fileExtension(filePath);
-
-    if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" ||
-        ext == ".hpp" || ext == ".hxx")
-        return Language::CPP;
-
-    if (ext == ".c")
-        return Language::C;
-
-    if (ext == ".h") {
-        std::string paired = fileDirectory(filePath) + "/" + fileStem(filePath) + ".c";
-        std::ifstream probe(paired);
-        return probe.good() ? Language::C : Language::CPP;
-    }
-
-    if (ext == ".go") return Language::Go;
-    if (ext == ".py") return Language::Python;
-    if (ext == ".rb") return Language::Ruby;
-
-    return Language::Unknown;
-}
-
-static std::string languageName(Language lang) {
-    switch (lang) {
-        case Language::C:       return "C";
-        case Language::CPP:     return "C++";
-        case Language::Go:      return "Go";
-        case Language::Python:  return "Python";
-        case Language::Ruby:    return "Ruby";
-        default:                return "";
-    }
-}
-
-static Language languageFromName(const std::string& name) {
-    if (name == "C")       return Language::C;
-    if (name == "C++")     return Language::CPP;
-    if (name == "Go")      return Language::Go;
-    if (name == "Python")  return Language::Python;
-    if (name == "Ruby")    return Language::Ruby;
-    return Language::Unknown;
-}
-
-static const LanguageProfile* profileForLanguage(Language lang) {
-    static const LanguageProfile kC   = makeCProfile();
-    static const LanguageProfile kCpp = makeCppProfile();
-    switch (lang) {
-        case Language::C:   return &kC;
-        case Language::CPP: return &kCpp;
-        default:            return nullptr;  // Go/Python/Ruby profiles not yet implemented
-    }
-}
 
 // ---------------------------------------------------------------------------
 // buildPrompt
@@ -377,6 +296,8 @@ ModelResponse Orchestrator::parseModelResponse(const std::string& rawResponse) {
 
 std::string Orchestrator::run(const std::string&              userQuery,
                               const std::vector<ProjectFiles>& projects) {
+    LanguageRegistry::init();
+
     SessionMapObject session;
     const std::string projectId = projects.empty() ? "" : projects[0].projectId;
 
@@ -390,23 +311,29 @@ std::string Orchestrator::run(const std::string&              userQuery,
             if (auto pos = filePath.rfind('/'); pos != std::string::npos)
                 fileName = filePath.substr(pos + 1);
 
-            Language lang = detectLanguage(filePath);
-            const LanguageProfile* profile = profileForLanguage(lang);
+            const LanguageProfile* profile =
+                LanguageRegistry::instance().forPath(filePath);
 
-            // Skip files whose language has no grammar profile.
-            if (!profile) continue;
-
-            std::string langStr = languageName(lang);
-
-            // Store the filename → language mapping for decompression lookup.
-            session.storeFileLanguage(fileName, langStr);
-
-            // Read original content (for uncompressed token estimate).
+            // Read original content (needed for both paths below).
             std::string original;
             {
                 std::ifstream f(filePath, std::ios::binary);
                 if (f) { std::ostringstream ss; ss << f.rdbuf(); original = ss.str(); }
             }
+
+            if (!profile) {
+                // Unknown extension — pass the file through uncompressed.
+                session.storeFileLanguage(fileName, "raw");
+                originalFiles.push_back({"raw", fileName, original});
+                compressedFiles.push_back({"raw", fileName, original});
+                continue;
+            }
+
+            const std::string& langStr = profile->name;
+
+            // Store the filename → language mapping for decompression lookup.
+            session.storeFileLanguage(fileName, langStr);
+
             originalFiles.push_back({langStr, fileName, original});
 
             std::string compressed = QuerySquasher::apply(
@@ -481,10 +408,12 @@ std::string Orchestrator::run(const std::string&              userQuery,
     // whose language was determined by filesystem pairing, not extension alone.
     for (auto& [name, content] : modelResp.files) {
         std::string langStr = session.getFileLanguage(name);
-        const LanguageProfile* profile = profileForLanguage(languageFromName(langStr));
+        const LanguageProfile* profile =
+            LanguageRegistry::instance().forName(langStr);
         if (profile) {
             content = ResponseBuilder::apply(session, projectId, content, *profile);
         }
+        // "raw" files (unknown extension) have no profile — emit content as-is.
     }
 
     // Step 7: assemble the final response.

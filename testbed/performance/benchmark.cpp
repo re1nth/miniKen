@@ -6,7 +6,7 @@
 // proxy for LLM sub-word tokenization.
 #include "sessionStore/sessionMapObject.h"
 #include "parser/querySquasher.h"
-#include "parser/cppProfile.h"
+#include "parser/profiles/cppProfile.h"
 
 #include <algorithm>
 #include <fstream>

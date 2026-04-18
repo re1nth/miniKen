@@ -8,7 +8,7 @@
 #include "sessionStore/sessionMapObject.h"
 #include "parser/querySquasher.h"
 #include "parser/responseBuilder.h"
-#include "parser/cppProfile.h"
+#include "parser/profiles/cppProfile.h"
 
 #include <fstream>
 #include <iostream>
