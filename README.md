@@ -60,6 +60,11 @@ That single command handles everything:
 
 Once running, open **http://localhost:4040** for the web interface.
 
+## Languages Supported
+
+- C
+- CPP
+
 **System requirements**
 
 | Dependency | Install |
